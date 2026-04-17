@@ -175,7 +175,23 @@ const configuration_workflow = (req) =>
 module.exports = {
   "JavaScript code": {
     configuration_workflow,
-    fields: (cfg) => cfg?.columns || [],
+    fields: async (cfg) => {
+      const parsed = typeof cfg === "string" ? JSON.parse(cfg) : cfg;
+      if (parsed?.columns?.length) return parsed.columns;
+      if (!parsed?.code) return [];
+      try {
+        const rows = await runCode(parsed.code, {}, {});
+        if (!Array.isArray(rows) || !rows.length) return [];
+        const sampleRow = rows[0];
+        return Object.keys(sampleRow).map((name) => ({
+          name,
+          label: Field.nameToLabel(name),
+          type: jsTypeGuess(sampleRow[name]),
+        }));
+      } catch {
+        return [];
+      }
+    },
     get_table: (cfg) => ({
       getRows: async (where, opts) => {
         const rows = await runCode(cfg.code, where, opts);
