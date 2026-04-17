@@ -177,30 +177,46 @@ module.exports = {
     configuration_workflow,
     fields: async (cfg) => {
       const parsed = typeof cfg === "string" ? JSON.parse(cfg) : cfg;
-      if (parsed?.columns?.length) return parsed.columns;
-      if (!parsed?.code) return [];
-      try {
-        const rows = await runCode(parsed.code, {}, {});
-        if (!Array.isArray(rows) || !rows.length) return [];
-        const sampleRow = rows[0];
-        return Object.keys(sampleRow).map((name) => ({
-          name,
-          label: Field.nameToLabel(name),
-          type: jsTypeGuess(sampleRow[name]),
-        }));
-      } catch {
-        return [];
+      let columns = parsed?.columns?.length ? parsed.columns : null;
+      if (!columns) {
+        if (!parsed?.code) return [];
+        try {
+          const rows = await runCode(parsed.code, {}, {});
+          if (!Array.isArray(rows) || !rows.length) return [];
+          const sampleRow = rows[0];
+          columns = Object.keys(sampleRow).map((name) => ({
+            name,
+            label: Field.nameToLabel(name),
+            type: jsTypeGuess(sampleRow[name]),
+          }));
+        } catch {
+          return [];
+        }
       }
+      if (!columns.some((f) => f.primary_key))
+        columns = [
+          { name: "_idx", label: "Index", type: "Integer", primary_key: true },
+          ...columns,
+        ];
+      return columns;
     },
-    get_table: (cfg) => ({
-      getRows: async (where, opts) => {
-        const rows = await runCode(cfg.code, where, opts);
-        return Array.isArray(rows) ? rows : [];
-      },
-      countRows: async (where, opts) => {
-        const rows = await runCode(cfg.code, where, opts);
-        return Array.isArray(rows) ? rows.length : 0;
-      },
-    }),
+    get_table: (cfg) => {
+      const parsed = typeof cfg === "string" ? JSON.parse(cfg) : cfg;
+      const hasPK = parsed?.columns?.some((f) => f.primary_key);
+      return {
+        getRows: async (where, opts) => {
+          const rows = await runCode(cfg.code, where, opts);
+          if (!Array.isArray(rows)) return [];
+          return hasPK ? rows : rows.map((r, i) => ({ _idx: i, ...r }));
+        },
+        countRows: async (where, opts) => {
+          const rows = await runCode(cfg.code, where, opts);
+          return Array.isArray(rows) ? rows.length : 0;
+        },
+        updateRow: async () => "Updates are not supported on JavaScript code provider tables",
+        insertRow: async () => "Inserts are not supported on JavaScript code provider tables",
+        deleteRows: async () => "Deletes are not supported on JavaScript code provider tables",
+      };
+    },
   },
 };
